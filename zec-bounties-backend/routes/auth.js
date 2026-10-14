@@ -21,6 +21,7 @@ const { delCache, deleteCacheByPattern } = require("../utils/cache");
 const { sendRealtimeUpdate } = require("../middleware/websocket");
 const {
   AccountOnboardingError,
+  changeSelfServeRole,
   findOrCreateGoogleUser,
 } = require("../helpers/accountOnboarding");
 
@@ -801,6 +802,28 @@ router.patch("/update-nickname", authenticate, async (req, res) => {
     res.status(500).json({
       error: "Failed to update nickname",
     });
+  }
+});
+
+// Change between hunter and team without discarding account data.
+router.patch("/change-role", authenticate, async (req, res) => {
+  try {
+    const user = await changeSelfServeRole(prisma, {
+      userId: req.user.id,
+      currentRole: req.user.role,
+      targetRole: req.body.role,
+      isRobin: req.user.isRobin,
+    });
+    await delCache("users:all");
+    sendRealtimeUpdate("user_updated", user, req.user.id);
+
+    return res.json({ user, token: signSessionToken(user) });
+  } catch (error) {
+    if (error instanceof AccountOnboardingError) {
+      return res.status(error.statusCode).json({ error: error.message });
+    }
+    console.error("Failed to change account role:", error);
+    return res.status(500).json({ error: "Failed to change account role" });
   }
 });
 

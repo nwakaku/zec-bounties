@@ -152,8 +152,9 @@ Google sign-in is optional and appears on the login screen only when both
 Google credentials are configured. Register the redirect URI shown above in
 the Google OAuth client. New Google accounts start in onboarding, and an
 existing account with the same verified email is linked to the Google identity.
-Apply the Prisma schema update (`npx prisma db push`) before enabling Google
-sign-in.
+After applying the Prisma schema update (`npx prisma db push`), users can switch
+between Hunter and Team from their profile. Team owners and admins must transfer
+their team responsibilities before switching to Hunter.
 
 ---
 

@@ -229,8 +229,8 @@ interface BountyContextType {
   fetchBounties: (
     reset?: boolean,
     opts?: { chain?: "MAIN" | "TEST" | "ALL"; teamId?: string; user?: string },
-  ) => Promise<void>;
-  loadMoreBounties: () => Promise<void>;
+  ) => Promise<boolean>;
+  loadMoreBounties: () => Promise<boolean>;
   loadAllBounties: () => Promise<boolean>;
   hasMoreBounties: boolean;
   bountiesPage: number;
@@ -458,8 +458,8 @@ interface BountyContextType {
   fetchTeamBounties: (
     teamId: string,
     opts?: { reset?: boolean; chain?: "MAIN" | "TEST" | "ALL" },
-  ) => Promise<void>;
-  loadMoreTeamBounties: (teamId: string) => Promise<void>;
+  ) => Promise<boolean>;
+  loadMoreTeamBounties: (teamId: string) => Promise<boolean>;
   fetchTeamWalletBalance: (teamId: string) => Promise<any | null>;
   communities: Community[];
   communitiesLoading: boolean;
@@ -1773,7 +1773,7 @@ export function BountyProvider({ children }: { children: React.ReactNode }) {
   const fetchTeamBounties = async (
     teamId: string,
     opts?: { reset?: boolean; chain?: "MAIN" | "TEST" | "ALL" },
-  ) => {
+  ): Promise<boolean> => {
     const reset = opts?.reset ?? true;
 
     setTeamBountiesLoading((prev) => ({ ...prev, [teamId]: true }));
@@ -1813,16 +1813,19 @@ export function BountyProvider({ children }: { children: React.ReactNode }) {
       });
 
       teamBountiesPageRef.current[teamId] = page + 1;
+      return true;
     } catch (error) {
       console.error("Failed to fetch team bounties:", error);
+      return false;
     } finally {
       setTeamBountiesLoading((prev) => ({ ...prev, [teamId]: false }));
     }
   };
 
-  const loadMoreTeamBounties = async (teamId: string) => {
-    if (teamBountiesLoading[teamId] || !teamBountiesHasMore[teamId]) return;
-    await fetchTeamBounties(teamId, { reset: false });
+  const loadMoreTeamBounties = async (teamId: string): Promise<boolean> => {
+    if (teamBountiesLoading[teamId] || !teamBountiesHasMore[teamId])
+      return false;
+    return fetchTeamBounties(teamId, { reset: false });
   };
 
   // Used by the WS handlers below to keep a loaded team's cache in sync
@@ -3232,7 +3235,7 @@ export function BountyProvider({ children }: { children: React.ReactNode }) {
   const fetchBounties = async (
     reset = true,
     opts?: { chain?: "MAIN" | "TEST" | "ALL"; teamId?: string; user?: string },
-  ) => {
+  ): Promise<boolean> => {
     if (opts && "user" in opts) {
       listUserRef.current = String(opts.user || "").trim();
     }
@@ -3262,7 +3265,7 @@ export function BountyProvider({ children }: { children: React.ReactNode }) {
       if (!res.ok) throw new Error("Failed to fetch bounties");
 
       const data = await res.json();
-      if (requestId !== fetchBountiesReqId.current) return;
+      if (requestId !== fetchBountiesReqId.current) return false;
       const incoming = reconcileFetchedBounties(
         Array.isArray(data) ? data : (data.data ?? []),
         updatesAtStart,
@@ -3287,17 +3290,19 @@ export function BountyProvider({ children }: { children: React.ReactNode }) {
         incoming.length === BOUNTIES_PER_PAGE &&
           page * BOUNTIES_PER_PAGE < total,
       );
+      return true;
     } catch (error) {
       console.error("Failed to fetch bounties:", error);
+      return false;
     } finally {
       if (requestId === fetchBountiesReqId.current) setBountiesLoading(false);
     }
   };
 
   /** Appends the next page of bounties to the existing list */
-  const loadMoreBounties = async () => {
-    if (!hasMoreBounties || bountiesLoading) return;
-    await fetchBounties(false);
+  const loadMoreBounties = async (): Promise<boolean> => {
+    if (!hasMoreBounties || bountiesLoading) return false;
+    return fetchBounties(false);
   };
 
   /** Fetches every page (limit 50, backend cap) and replaces the list. */

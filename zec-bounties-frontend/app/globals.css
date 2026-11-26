@@ -160,6 +160,15 @@
   body {
     @apply bg-background text-foreground selection:bg-primary selection:text-primary-foreground;
   }
+  @media (prefers-reduced-motion: no-preference) {
+    body,
+    body :where(*) {
+      transition:
+        background-color 180ms ease,
+        border-color 180ms ease,
+        color 180ms ease;
+    }
+  }
 }
 
 @keyframes seal-in {

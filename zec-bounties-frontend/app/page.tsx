@@ -12,10 +12,13 @@ import {
   Filter,
   ArrowRight,
   Loader2,
-  ChevronsDown,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { BountyDetailModal } from "@/components/bounty-detail-modal";
+import {
+  BOUNTY_PAGE_SIZE,
+  BountyPagination,
+} from "@/components/bounty-pagination";
 import { RepoFilter } from "@/components/repo-filter";
 import { bountyRepo, type RepoId } from "@/lib/repos";
 import { Bounty } from "@/lib/types";
@@ -77,6 +80,7 @@ export default function RootPage() {
   const [selectedBounty, setSelectedBounty] = useState<Bounty | null>(null);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
 
   // Redirect logged-in users to the page for their role
   useEffect(() => {
@@ -174,14 +178,34 @@ export default function RootPage() {
     );
   }, [categoryFilteredBounties, activeRepo]);
 
+  const paginatedBounties = useMemo(
+    () =>
+      filteredBounties.slice(
+        (currentPage - 1) * BOUNTY_PAGE_SIZE,
+        currentPage * BOUNTY_PAGE_SIZE,
+      ),
+    [filteredBounties, currentPage],
+  );
+
   const kanbanGroups = useMemo(
     () =>
       KANBAN_COLUMNS.map((col) => ({
         ...col,
-        bounties: filteredBounties.filter((b) => b.status === col.status),
+        bounties: paginatedBounties.filter((b) => b.status === col.status),
       })),
-    [filteredBounties],
+    [paginatedBounties],
   );
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [activeCategory, activeRepo, searchQuery]);
+  useEffect(() => {
+    const loadedPageCount = Math.max(
+      1,
+      Math.ceil(filteredBounties.length / BOUNTY_PAGE_SIZE),
+    );
+    if (currentPage > loadedPageCount) setCurrentPage(loadedPageCount);
+  }, [currentPage, filteredBounties.length]);
 
   // Open a bounty and reflect it in the URL
   const openBounty = (bounty: Bounty) => {
@@ -200,13 +224,30 @@ export default function RootPage() {
       ? bounties.length
       : bounties.filter((b) => b.categoryId === name).length;
 
-  const handleLoadMore = async () => {
+  const handleLoadMore = async (): Promise<boolean> => {
+    if (isLoadingMore || bountiesLoading) return false;
     setIsLoadingMore(true);
     try {
-      await loadMoreBounties();
+      return await loadMoreBounties();
     } finally {
       setIsLoadingMore(false);
     }
+  };
+
+  const canLoadNextPage =
+    hasMoreBounties && !searchQuery && activeCategory === "All";
+  const handlePageChange = async (page: number) => {
+    const loadedPageCount = Math.max(
+      1,
+      Math.ceil(filteredBounties.length / BOUNTY_PAGE_SIZE),
+    );
+    if (page < 1 || page > loadedPageCount + 1) return;
+    if (page <= loadedPageCount) {
+      setCurrentPage(page);
+      return;
+    }
+    if (!canLoadNextPage || bountiesLoading || isLoadingMore) return;
+    if (await handleLoadMore()) setCurrentPage(page);
   };
 
   // While auth or bounties are loading, show spinner (but not during load-more)
@@ -255,7 +296,10 @@ export default function RootPage() {
           }
         />
 
-        <div className="imd:flex imd:flex-row gap-8 min-w-0 grid grid-cols-1">
+        <div
+          id="opportunities"
+          className="imd:flex imd:flex-row gap-8 min-w-0 grid grid-cols-1 scroll-mt-20"
+        >
           <aside className="space-y-8 flex-shrink-0">
             <div className="imd:w-64">
               <h3 className="text-sm font-semibold mb-4 flex items-center gap-2">
@@ -308,39 +352,6 @@ export default function RootPage() {
                 >
                  <List className="h-4 w-4" aria-hidden="true" />
                 </Button>
-                {hasMoreBounties &&
-                  !searchQuery &&
-                  activeCategory === "All" && (
-                    <div className="relative group">
-                      <Button
-                       variant="ghost"
-                        size="icon"
-                        className="h-8 w-8"
-                        onClick={handleLoadMore}
-                        disabled={isLoadingMore || bountiesLoading}
-                        aria-label={
-                          isLoadingMore || bountiesLoading
-                            ? "Loading more bounties"
-                            : "Load more bounties"
-                        }
-                      >
-                        {isLoadingMore || bountiesLoading ? (
-                          <Loader2
-                            className="h-4 w-4 animate-spin"
-                            aria-hidden="true"
-                          />
-                        ) : (
-                          <ChevronsDown
-                            className="h-4 w-4"
-                            aria-hidden="true"
-                          />
-                        )}
-                      </Button>
-                      <span className="pointer-events-none absolute right-0 top-full mt-1.5 whitespace-nowrap rounded-md bg-popover px-2 py-1 text-[11px] text-popover-foreground shadow-md opacity-0 group-hover:opacity-100 transition-opacity duration-150 z-10">
-                        Load more
-                      </span>
-                    </div>
-                  )}
               </div>
             </div>
 
@@ -443,6 +454,13 @@ export default function RootPage() {
                 </p>
               </div>
             )}
+            <BountyPagination
+              currentPage={currentPage}
+              totalItems={filteredBounties.length}
+              hasMore={canLoadNextPage}
+              loading={isLoadingMore || bountiesLoading}
+              onPageChange={handlePageChange}
+            />
           </div>
         </div>
       </div>

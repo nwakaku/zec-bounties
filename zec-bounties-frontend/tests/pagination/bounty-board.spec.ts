@@ -115,16 +115,14 @@ async function openBoard(
   };
 }
 
-const cards = (page: Page) => page.getByText(/^Pagination bounty \d+$/);
-const loadMore = (page: Page) =>
-  page.locator("div.relative.group")
-    .filter({ hasText: "Load more" })
-    .getByRole("button");
-
-async function scrollForMore(page: Page) {
-  // Exercise the board's real IntersectionObserver, rather than replacing it.
-  await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-}
+const cards = (page: Page) =>
+  page.getByRole("heading", { name: /^Pagination bounty \d+$/ });
+const card = (page: Page, title: string) =>
+  page.getByRole("heading", { name: title, exact: true });
+const nextPage = (page: Page) =>
+  page.getByRole("button", { name: "Next page" });
+const previousPage = (page: Page) =>
+  page.getByRole("button", { name: "Previous page" });
 
 async function openFilters(page: Page) {
   const panel = page.getByRole("dialog");
@@ -177,10 +175,10 @@ test("combines shareable bounty filters and keeps them when reopened on mobile",
 
   await selectFilter(page, "Status", "Assigned");
   await expect(cards(page)).toHaveCount(1);
-  await expect(page.getByText("Pagination bounty 03", { exact: true })).toBeVisible();
+  await expect(card(page, "Pagination bounty 03")).toBeVisible();
   await selectFilter(page, "Status", "In review");
   await expect(cards(page)).toHaveCount(1);
-  await expect(page.getByText("Pagination bounty 04", { exact: true })).toBeVisible();
+  await expect(card(page, "Pagination bounty 04")).toBeVisible();
   await selectFilter(page, "Status", "Open");
 
   await selectFilter(page, "Team", "Alpha Team");
@@ -194,7 +192,7 @@ test("combines shareable bounty filters and keeps them when reopened on mobile",
   await page.getByRole("tab", { name: /Namada/ }).click();
 
   await expect(cards(page)).toHaveCount(1);
-  await expect(page.getByText("Pagination bounty 01", { exact: true })).toBeVisible();
+  await expect(card(page, "Pagination bounty 01")).toBeVisible();
   await expect(page).toHaveURL(/team=team-a/);
   await expect(page).toHaveURL(/min=0.2/);
   await expect(page).toHaveURL(/max=0.5/);
@@ -240,34 +238,36 @@ test("sorts the full bounty set by reward and deadline", async ({ page }) => {
   await expect(page).toHaveURL(/sort=soonest_deadline/);
 });
 
-test("loads more results, then all results, after a list refresh", async ({ page }, testInfo) => {
+test("paginates results and keeps the selected page valid after a list refresh", async ({ page }, testInfo) => {
   const total = 25;
   const fixture = await openBoard(page, total);
   await expect(cards(page)).toHaveCount(10);
-  await expect(loadMore(page)).toBeVisible();
+  await expect(nextPage(page)).toBeEnabled();
 
-  await scrollForMore(page);
-  await expect(cards(page)).toHaveCount(20);
-  await page.evaluate(() => window.scrollTo(0, 0));
+  await nextPage(page).click();
+  await expect(cards(page)).toHaveCount(10);
+  await expect(card(page, "Pagination bounty 11")).toBeVisible();
+  await expect(card(page, "Pagination bounty 01")).toHaveCount(0);
+  await previousPage(page).click();
+  await expect(card(page, "Pagination bounty 01")).toBeVisible();
 
   // Visibility changes still reset the authorized list. Assignment events
   // now patch one bounty and intentionally preserve already loaded pages.
   fixture.send("team_bounties_privacy_changed", { teamId: "fixture-team" });
   await expect(cards(page)).toHaveCount(10);
-  await expect(loadMore(page)).toBeVisible();
+  await expect(card(page, "Pagination bounty 01")).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath("after-refresh.png") });
 
-  await scrollForMore(page);
-  await expect(cards(page)).toHaveCount(20);
+  await nextPage(page).click();
+  await expect(cards(page)).toHaveCount(10);
   if (total > 20) {
-    await scrollForMore(page);
-    await expect(cards(page)).toHaveCount(total);
+    await nextPage(page).click();
+    await expect(cards(page)).toHaveCount(total - 20);
   }
-  await expect(loadMore(page)).toHaveCount(0);
+  await expect(nextPage(page)).toBeDisabled();
   expect(fixture.requestedPages).toEqual(
     total === 20 ? [2, 1, 2] : [2, 1, 2, 3],
   );
-  expect(new Set(await cards(page).allTextContents()).size).toBe(total);
   await page.screenshot({
     path: testInfo.outputPath("all-bounties.png"),
     fullPage: true,
@@ -275,38 +275,42 @@ test("loads more results, then all results, after a list refresh", async ({ page
 });
 
 for (const total of [0, 5, 10]) {
-  test(`${total} results stop without requesting another page`, async ({ page }) => {
+  test(`${total} results show no further page when the list is complete`, async ({ page }) => {
     const fixture = await openBoard(page, total);
     await expect(cards(page)).toHaveCount(total);
-    await expect(loadMore(page)).toHaveCount(0);
     if (total === 0) {
       await expect(page.getByText("No bounties found.")).toBeVisible();
+      await expect(nextPage(page)).toHaveCount(0);
+    } else {
+      await expect(nextPage(page)).toBeDisabled();
     }
-    await scrollForMore(page);
-    // Give the observer several rendering frames to react to the scroll.
-    await page.evaluate(() => new Promise<void>((resolve) => {
-      requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
-    }));
     expect(fixture.requestedPages).toEqual([]);
   });
 }
 
-test("a live insertion and overlapping page do not duplicate cards or hide the final page", async ({ page }) => {
+test("a live insertion and overlapping API pages remain navigable without duplicate cards", async ({ page }) => {
   const fixture = await openBoard(page, 20);
   await expect(cards(page)).toHaveCount(10);
 
   const added = bounty(0);
   fixture.rows.unshift(added);
   fixture.send("new_bounties", added);
-  await expect(cards(page)).toHaveCount(11);
+  await expect(cards(page)).toHaveCount(10);
+  const seen = new Set(await cards(page).allTextContents());
 
-  // Page 2 now includes bounty 10 again. It must be deduplicated, but the
-  // 21 displayed/API rows must not be mistaken for 21 consumed API offsets.
-  await scrollForMore(page);
-  await expect(cards(page)).toHaveCount(20);
-  await scrollForMore(page);
-  await expect(cards(page)).toHaveCount(21);
-  await expect(loadMore(page)).toHaveCount(0);
-  expect(new Set(await cards(page).allTextContents()).size).toBe(21);
+  // The live insertion fills the first UI page before the next API page loads.
+  await nextPage(page).click();
+  await expect(cards(page)).toHaveCount(1);
+  for (const title of await cards(page).allTextContents()) seen.add(title);
+
+  // API page 2 overlaps the live insertion's shifted offset and is deduplicated.
+  await nextPage(page).click();
+  await expect(cards(page)).toHaveCount(10);
+  for (const title of await cards(page).allTextContents()) seen.add(title);
+  await nextPage(page).click();
+  await expect(cards(page)).toHaveCount(1);
+  for (const title of await cards(page).allTextContents()) seen.add(title);
+  await expect(nextPage(page)).toBeDisabled();
+  expect(seen.size).toBe(21);
   expect(fixture.requestedPages).toEqual([2, 3]);
 });

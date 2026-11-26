@@ -5,6 +5,10 @@ import Link from "next/link";
 import { useSearchParams, usePathname, useRouter } from "next/navigation";
 import { Navbar } from "@/components/layout/navbar";
 import { BountyCard } from "@/components/bounty-card";
+import {
+  BOUNTY_PAGE_SIZE,
+  BountyPagination,
+} from "@/components/bounty-pagination";
 import { Button } from "@/components/ui/button";
 import {
   LayoutGrid,
@@ -13,11 +17,19 @@ import {
   Plus,
   ArrowRight,
   Loader2,
-  ChevronsDown,
   Ban,
+  ArrowUpRight,
+  ChevronDown,
+  ChevronUp,
+  Coins,
+  ExternalLink,
+  Search,
+  Trophy,
+  UserRound,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { NewBountyModal } from "@/components/new-bounty-modal";
 import { BountyDetailModal } from "@/components/bounty-detail-modal";
 import { RepoFilter } from "@/components/repo-filter";
@@ -40,11 +52,9 @@ import {
   type BountyBoardFilters,
 } from "@/lib/bounty-filters";
 import { formatStatus } from "@/lib/utils";
-import { ProtectedRoute } from "@/components/auth/protected-route";
-import { FavoriteTeamsSidebar } from "@/components/favorite-teams-sidebar";
-import { HeroCarousel } from "@/components/hero-carousel";
 import { MobileNavShell } from "@/components/layout/mobile-nav-shell";
 import { useTaskCreationBlocked } from "@/hooks/use-task-creation-blocked";
+import { formatDistanceToNow } from "date-fns";
 // import { useRoleGuard } from "@/hooks/use-role-guard";
 
 const KANBAN_COLUMNS: {
@@ -118,6 +128,27 @@ const DEADLINE_PRESETS = [
   { label: "This month", days: 30 },
 ];
 
+const DAO_PROPOSAL_CONTRACT =
+  "juno14futcfehnc8fn4nz6gtm25svn05mzz09ju8rtj0jvven2hpxj85s0q8a55";
+const DAO_PROPOSALS_URL =
+  "https://daodao.zone/dao/juno1nktrulhakwm0n3wlyajpwxyg54n39xx4y8hdaqlty7mymf85vweq7m6t0y/proposals";
+const TOP_EARNERS_VISIBLE_COUNT = 5;
+const TOP_EARNER_ROW_HEIGHT = 44;
+
+interface DaoProposal {
+  id: number;
+  proposal: {
+    title: string;
+    status: string;
+  };
+}
+
+interface DaoProposalResponse {
+  data?: {
+    proposals?: DaoProposal[];
+  };
+}
+
 function HomeContent() {
   const taskCreationBlocked = useTaskCreationBlocked();
   const { bountyQuota } = useBounty();
@@ -136,6 +167,8 @@ function HomeContent() {
     teamBountiesHasMore,
     fetchTeamBounties,
     loadMoreTeamBounties,
+    leaderboard,
+    fetchLeaderboard,
   } = useBounty();
 
   const router = useRouter();
@@ -148,12 +181,17 @@ function HomeContent() {
   const [filterLoadError, setFilterLoadError] = useState(false);
   const [filterLoadRetry, setFilterLoadRetry] = useState(0);
   const filterLoadStarted = useRef(false);
-  const [viewMode, setViewMode] = useState<"grid" | "list" | "defrag">("grid");
+  const leaderboardFetchStarted = useRef(false);
+  const [daoProposals, setDaoProposals] = useState<DaoProposal[]>([]);
+  const [daoProposalsLoading, setDaoProposalsLoading] = useState(true);
+  const [daoProposalsError, setDaoProposalsError] = useState(false);
+  const [topEarnerIndex, setTopEarnerIndex] = useState(0);
+  const [viewMode, setViewMode] = useState<"grid" | "list" | "defrag">("list");
   const [isNewBountyModalOpen, setIsNewBountyModalOpen] = useState(false);
   const [selectedBounty, setSelectedBounty] = useState<Bounty | null>(null);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
-  const sentinelRef = useRef<HTMLDivElement | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
 
   const {
     category: activeCategory,
@@ -184,6 +222,9 @@ function HomeContent() {
   useEffect(() => {
     setFilters(readBountyBoardFilters(new URLSearchParams(searchParamString)));
   }, [searchParamString]);
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filters, activeTeamId]);
 
   // currentUser is guaranteed non-null here — ProtectedRoute handles the gate
   const displayCategories = ["All", ...categories.map((c) => c.name)];
@@ -245,17 +286,26 @@ function HomeContent() {
     [sourceBounties, filters],
   );
 
+  const paginatedBounties = useMemo(
+    () =>
+      filteredBounties.slice(
+        (currentPage - 1) * BOUNTY_PAGE_SIZE,
+        currentPage * BOUNTY_PAGE_SIZE,
+      ),
+    [filteredBounties, currentPage],
+  );
+
   const kanbanGroups = useMemo(
     () =>
       KANBAN_COLUMNS.map((col) => ({
         ...col,
-        bounties: filteredBounties.filter((b) => b.status === col.status),
+        bounties: paginatedBounties.filter((b) => b.status === col.status),
       })),
-    [filteredBounties],
+    [paginatedBounties],
   );
 
   const defragBounties = useMemo(() => {
-    return [...filteredBounties].sort((a, b) => {
+    return [...paginatedBounties].sort((a, b) => {
       const ai = STATUS_ORDER.indexOf(a.status);
       const bi = STATUS_ORDER.indexOf(b.status);
       if (ai !== bi) return ai - bi;
@@ -263,9 +313,73 @@ function HomeContent() {
         new Date(b.dateCreated).getTime() - new Date(a.dateCreated).getTime()
       );
     });
-  }, [filteredBounties]);
+  }, [paginatedBounties]);
 
   const missingUA = !currentUser?.UA_address;
+  const topEarnerVisibleCount = Math.min(
+    TOP_EARNERS_VISIBLE_COUNT,
+    leaderboard.length,
+  );
+  const maxTopEarnerIndex = Math.max(
+    0,
+    leaderboard.length - topEarnerVisibleCount,
+  );
+  const visibleTopEarnerIndex = Math.min(topEarnerIndex, maxTopEarnerIndex);
+
+  useEffect(() => {
+    if (leaderboardFetchStarted.current) return;
+    leaderboardFetchStarted.current = true;
+    void fetchLeaderboard({ timeRange: "all", chain: "MAIN", limit: 10 });
+  }, [fetchLeaderboard]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const query = btoa(JSON.stringify({ reverse_proposals: { limit: 3 } }));
+
+    fetch(
+      `https://juno-api.polkachu.com/cosmwasm/wasm/v1/contract/${DAO_PROPOSAL_CONTRACT}/smart/${query}`,
+      { signal: controller.signal },
+    )
+      .then((response) => {
+        if (!response.ok) throw new Error("Failed to fetch DAO proposals");
+        return response.json() as Promise<DaoProposalResponse>;
+      })
+      .then((result) => {
+        if (!Array.isArray(result.data?.proposals)) {
+          throw new Error("Invalid DAO proposal response");
+        }
+        setDaoProposals(result.data.proposals.slice(0, 3));
+      })
+      .catch((error: unknown) => {
+        if (error instanceof Error && error.name === "AbortError") return;
+        console.error("Failed to fetch DAO proposals:", error);
+        setDaoProposalsError(true);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setDaoProposalsLoading(false);
+      });
+
+    return () => controller.abort();
+  }, []);
+
+  const recentBounties = useMemo(
+    () =>
+      [...sourceBounties]
+        .sort(
+          (a, b) =>
+            new Date(b.updatedAt ?? b.dateCreated).getTime() -
+            new Date(a.updatedAt ?? a.dateCreated).getTime(),
+        )
+        .slice(0, 5),
+    [sourceBounties],
+  );
+  const openBountyCount = sourceBounties.filter(
+    (bounty) => bounty.status === "TO_DO",
+  ).length;
+  const visibleRewards = sourceBounties.reduce(
+    (total, bounty) => total + bounty.bountyAmount,
+    0,
+  );
 
   // Open a bounty and reflect it in the URL
   const openBounty = (bounty: Bounty) => {
@@ -289,15 +403,22 @@ function HomeContent() {
       ? sourceBounties.length
       : sourceBounties.filter((b) => b.categoryId === name).length;
 
-  const handleLoadMore = useCallback(async () => {
+  const handleLoadMore = useCallback(async (): Promise<boolean> => {
+    if (isLoadingMore || sourceLoading) return false;
     setIsLoadingMore(true);
     try {
-      if (activeTeamId) await loadMoreTeamBounties(activeTeamId);
-      else await loadMoreBounties();
+      if (activeTeamId) return await loadMoreTeamBounties(activeTeamId);
+      return await loadMoreBounties();
     } finally {
       setIsLoadingMore(false);
     }
-  }, [loadMoreBounties, loadMoreTeamBounties, activeTeamId]);
+  }, [
+    isLoadingMore,
+    sourceLoading,
+    loadMoreBounties,
+    loadMoreTeamBounties,
+    activeTeamId,
+  ]);
 
   const handleNewBounty = () => {
     if (taskCreationBlocked) {
@@ -380,25 +501,28 @@ function HomeContent() {
     activeTeamId,
   ]);
 
-  const canLoadMore = sourceHasMore && !requiresCompleteResults;
+  const canLoadNextPage = sourceHasMore && !requiresCompleteResults;
+  const handlePageChange = async (page: number) => {
+    const loadedPageCount = Math.max(
+      1,
+      Math.ceil(filteredBounties.length / BOUNTY_PAGE_SIZE),
+    );
+    if (page < 1 || page > loadedPageCount + 1) return;
+    if (page <= loadedPageCount) {
+      setCurrentPage(page);
+      return;
+    }
+    if (!canLoadNextPage || sourceLoading || isLoadingMore) return;
+    if (await handleLoadMore()) setCurrentPage(page);
+  };
 
   useEffect(() => {
-    if (!canLoadMore) return;
-    const node = sentinelRef.current;
-    if (!node) return;
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting && !isLoadingMore && !sourceLoading) {
-          handleLoadMore();
-        }
-      },
-      { rootMargin: "400px" }, // start loading a bit before it's fully in view
+    const loadedPageCount = Math.max(
+      1,
+      Math.ceil(filteredBounties.length / BOUNTY_PAGE_SIZE),
     );
-
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, [canLoadMore, isLoadingMore, sourceLoading, handleLoadMore]);
+    if (currentPage > loadedPageCount) setCurrentPage(loadedPageCount);
+  }, [currentPage, filteredBounties.length]);
 
   // On load / when the URL param changes, open the matching bounty
   useEffect(() => {
@@ -430,70 +554,68 @@ function HomeContent() {
         onSearchChange={(value) => updateFilter("query", value)}
       />
 
-      <div className="xl:container xl:mx-auto px-3 imd:px-4 py-6 imd:py-8">
-        <HeroCarousel onNewBounty={handleNewBounty} />
-
-        {/* {taskCreationBlocked && (
-          <div
-            role="alert"
-            className="mb-6 flex items-start gap-3 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3"
-          >
-            <Ban className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
-            <div>
-              <p className="text-sm font-semibold text-destructive">
-                You can't create tasks
-              </p>
-              <p className="mt-0.5 text-xs text-muted-foreground">
-                An admin has disabled task creation for your account. You can
-                still browse bounties, apply, and submit work.
-              </p>
+      <div className="mx-auto w-full max-w-[1360px] px-3 py-5 sm:px-5 sm:py-7">
+        <section className="mb-5 overflow-hidden rounded-xl bg-gradient-to-r from-violet-600 via-violet-600 to-indigo-600 px-5 py-5 text-white shadow-sm sm:px-7">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-3">
+              <Avatar className="h-10 w-10 border border-white/30">
+                <AvatarImage
+                  src={currentUser?.avatar || undefined}
+                  alt=""
+                />
+                <AvatarFallback className="bg-white/20 text-white">
+                  {currentUser?.name?.charAt(0).toUpperCase() ?? "Z"}
+                </AvatarFallback>
+              </Avatar>
+              <div>
+                <p className="text-sm font-semibold text-white/75">
+                  ZEC Bounties
+                </p>
+                <h1 className="text-xl font-bold tracking-tight sm:text-2xl">
+                  Welcome back
+                  {currentUser?.nickname || currentUser?.name
+                    ? `, ${currentUser.nickname || currentUser.name}`
+                    : ""}
+                </h1>
+                <p className="mt-0.5 text-sm text-white/75">
+                  Find meaningful work and earn ZEC for your contribution.
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-2 sm:shrink-0">
+              <Button
+                title={
+                  taskCreationBlocked
+                    ? bountyQuota?.postEligibility?.mode === "closed"
+                      ? "Bounty suggestions are currently closed"
+                      : bountyQuota?.postEligibility?.allowed === false
+                        ? `Complete ${bountyQuota.postEligibility.required} bounties to post your own`
+                        : "An admin has disabled task creation for your account"
+                    : undefined
+                }
+                className={`w-full bg-white text-violet-700 hover:bg-white/90 sm:w-auto ${
+                  taskCreationBlocked ? "opacity-50" : ""
+                }`}
+                onClick={handleNewBounty}
+              >
+                {taskCreationBlocked ? (
+                  <Ban className="mr-2 h-4 w-4" />
+                ) : (
+                  <Plus className="mr-2 h-4 w-4" />
+                )}{" "}
+                New Bounty
+              </Button>
+              <Link href="/my-bounties" className="w-full sm:w-auto">
+                <Button
+                  variant="outline"
+                  className="w-full border-white/40 bg-transparent text-white hover:bg-white/10 hover:text-white sm:w-auto"
+                >
+                  My Bounties <ArrowRight className="ml-2 h-4 w-4" />
+                </Button>
+              </Link>
             </div>
           </div>
-        )} */}
-
-        <div className="flex flex-col md:flex-row md:items-end justify-between gap-5 sm:gap-6 mb-8 imd:mb-12">
-          <div className="space-y-2 min-w-0">
-            <h1 className="text-2xl sm:text-3xl md:text-4xl font-extrabold tracking-tight">
-              Welcome!
-            </h1>
-            <p className="text-muted-foreground text-sm sm:text-base md:text-lg max-w-2xl">
-              Complete tasks to earn ZEC. You could also create yours and get
-              ZEC for it.
-            </p>
-          </div>
-          <div className="hidden imd:grid imd:grid-cols-2 gap-2 imd:gap-3 shrink-0">
-            <Button
-              title={
-                taskCreationBlocked
-                  ? bountyQuota?.postEligibility?.mode === "closed"
-                    ? "Bounty suggestions are currently closed"
-                    : bountyQuota?.postEligibility?.allowed === false
-                      ? `Complete ${bountyQuota.postEligibility.required} bounties to post your own`
-                      : "An admin has disabled task creation for your account"
-                  : undefined
-              }
-              className={`w-full sm:w-auto rounded-full shadow-lg shadow-primary/20 ${
-                taskCreationBlocked ? "opacity-50" : ""
-              }`}
-              onClick={handleNewBounty}
-            >
-              {taskCreationBlocked ? (
-                <Ban className="mr-2 h-4 w-4" />
-              ) : (
-                <Plus className="mr-2 h-4 w-4" />
-              )}{" "}
-              New Bounty
-            </Button>
-            <Link href="/my-bounties" className="w-full sm:w-auto">
-              <Button
-                variant="outline"
-                className="w-full sm:w-auto rounded-full bg-transparent"
-              >
-                My Bounties <ArrowRight className="ml-2 h-4 w-4" />
-              </Button>
-            </Link>
-          </div>
-        </div>
+        </section>
 
         <NewBountyModal
           open={isNewBountyModalOpen}
@@ -509,16 +631,33 @@ function HomeContent() {
           }
         />
 
-        <div className="flex flex-col imd:flex-row gap-6 imd:gap-8 min-w-0">
-          <aside className="hidden imd:block imd:w-auto shrink-0">
-            <FavoriteTeamsSidebar
-              activeTeamId={activeTeamId}
-              onSelectTeam={(id) => updateFilter("teamId", id ?? "")}
-            />
-          </aside>
-
-          <div className="space-y-6 min-w-0 flex-1">
+        <div className="grid min-w-0 grid-cols-1 gap-7 md:grid-cols-[minmax(0,1fr)_260px] md:gap-6 xl:grid-cols-[minmax(0,1fr)_292px] xl:gap-8">
+          <div className="min-w-0 space-y-6">
             <div className="space-y-6 min-w-0 flex-1">
+              <section id="opportunities" className="scroll-mt-20">
+                <div className="mb-4">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">
+                      Browse opportunities
+                    </p>
+                    <h2 className="mt-1 text-xl font-bold tracking-tight sm:text-2xl">
+                      Find your next bounty
+                    </h2>
+                  </div>
+                  <div className="-mx-1 mt-4 flex gap-2 overflow-x-auto px-1 pb-1">
+                    {displayCategories.map((category) => (
+                      <FilterChip
+                        key={category}
+                        active={activeCategory === category}
+                        onClick={() => updateFilter("category", category)}
+                        count={getCategoryCount(category)}
+                      >
+                        {category}
+                      </FilterChip>
+                    ))}
+                  </div>
+                </div>
+              </section>
               <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 pb-3 sm:pb-4 border-b">
                 <h2 className="truncate text-base sm:text-xl font-bold">
                   {activeTeamId
@@ -742,26 +881,6 @@ function HomeContent() {
                   >
                     <Grid3X3 className="h-4 w-4" />
                   </Button>
-                  {canLoadMore && (
-                    <div className="relative group">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8"
-                        onClick={handleLoadMore}
-                        disabled={isLoadingMore || bountiesLoading}
-                      >
-                        {isLoadingMore || bountiesLoading ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <ChevronsDown className="h-4 w-4" />
-                        )}
-                      </Button>
-                      <span className="pointer-events-none absolute right-0 top-full mt-1.5 whitespace-nowrap rounded-md bg-popover px-2 py-1 text-[11px] text-popover-foreground shadow-md opacity-0 group-hover:opacity-100 transition-opacity duration-150 z-10">
-                        Load more
-                      </span>
-                    </div>
-                  )}
                 </div>
               </div>
 
@@ -900,7 +1019,7 @@ function HomeContent() {
                       </div>
                     ))}
                     <span className="w-full sm:w-auto sm:ml-auto text-[11px] opacity-70">
-                      {filteredBounties.length} bounties · click a block to open
+                      {paginatedBounties.length} bounties · click a block to open
                     </span>
                   </div>
                   <div
@@ -942,22 +1061,357 @@ function HomeContent() {
                 </div>
               )}
 
-              {canLoadMore && <div ref={sentinelRef} className="h-4" />}
+              <BountyPagination
+                currentPage={currentPage}
+                totalItems={filteredBounties.length}
+                hasMore={canLoadNextPage}
+                loading={isLoadingMore || sourceLoading}
+                onPageChange={handlePageChange}
+              />
+
+              <section id="grants" className="scroll-mt-20 pt-4">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">
+                      Community funding
+                    </p>
+                    <h2 className="mt-1 text-xl font-bold tracking-tight">
+                      Grants
+                    </h2>
+                  </div>
+                  <a
+                    href={DAO_PROPOSALS_URL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline"
+                  >
+                    View proposals <ArrowUpRight className="h-4 w-4" />
+                  </a>
+                </div>
+                {daoProposalsLoading ? (
+                  <p className="rounded-xl border bg-card p-4 text-sm text-muted-foreground">
+                    Loading recent proposals…
+                  </p>
+                ) : daoProposalsError ? (
+                  <p className="rounded-xl border bg-card p-4 text-sm text-muted-foreground">
+                    Recent proposals could not be loaded. Use “View proposals”
+                    to see them on DAO DAO.
+                  </p>
+                ) : daoProposals.length === 0 ? (
+                  <p className="rounded-xl border bg-card p-4 text-sm text-muted-foreground">
+                    No proposals are available right now.
+                  </p>
+                ) : (
+                  <ol className="space-y-2">
+                    {daoProposals.map(({ id, proposal }) => (
+                      <li key={id}>
+                        <a
+                          href={`${DAO_PROPOSALS_URL}/${id}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="group flex items-start gap-3 rounded-xl border bg-card p-3 transition-colors hover:border-primary/40 hover:bg-muted/40"
+                        >
+                          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                            <Trophy className="h-4 w-4" />
+                          </span>
+                          <span className="min-w-0 flex-1">
+                            <span className="block font-medium leading-snug group-hover:text-primary">
+                              {proposal.title}
+                            </span>
+                            <span className="mt-1 block text-xs text-muted-foreground">
+                              Proposal #{id}
+                            </span>
+                          </span>
+                          <Badge
+                            variant="secondary"
+                            className="shrink-0 capitalize"
+                          >
+                            {proposal.status.replaceAll("_", " ")}
+                          </Badge>
+                          <ExternalLink className="mt-1 h-4 w-4 shrink-0 text-muted-foreground" />
+                        </a>
+                      </li>
+                    ))}
+                  </ol>
+                )}
+              </section>
             </div>
           </div>
+
+          <aside className="space-y-5">
+            <section className="grid grid-cols-2 gap-3">
+              <div className="rounded-xl border bg-card p-4">
+                <p className="text-xs text-muted-foreground">Open bounties</p>
+                <p className="mt-1 text-2xl font-bold tabular-nums">
+                  {openBountyCount}
+                </p>
+              </div>
+              <div className="rounded-xl border bg-card p-4">
+                <p className="text-xs text-muted-foreground">Loaded rewards</p>
+                <p className="mt-1 flex items-center gap-1.5 text-xl font-bold tabular-nums">
+                  <Coins className="h-4 w-4 text-primary" />
+                  {visibleRewards.toLocaleString(undefined, {
+                    maximumFractionDigits: 4,
+                  })}
+                </p>
+                <p className="text-[11px] text-muted-foreground">ZEC</p>
+              </div>
+            </section>
+
+            <section className="rounded-xl border bg-card p-4">
+              <h2 className="text-sm font-semibold">How it works</h2>
+              <ol className="mt-4 space-y-4">
+                {[
+                  {
+                    title: "Complete your profile",
+                    description: "Add your skills and a payout address.",
+                    icon: UserRound,
+                    iconClass: "text-sky-600",
+                  },
+                  {
+                    title: "Choose a bounty",
+                    description: "Apply to tasks that match your experience.",
+                    icon: Search,
+                    iconClass: "text-violet-600",
+                  },
+                  {
+                    title: "Get paid in ZEC",
+                    description:
+                      "Submit approved work and receive your reward.",
+                    icon: Coins,
+                    iconClass: "text-amber-600",
+                  },
+                ].map(({ title, description, icon: StepIcon, iconClass }) => (
+                  <li key={title} className="flex gap-3">
+                    <StepIcon
+                      className={`mt-0.5 h-5 w-5 shrink-0 ${iconClass}`}
+                    />
+                    <div>
+                      <p className="text-sm font-medium">{title}</p>
+                      <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
+                        {description}
+                      </p>
+                    </div>
+                  </li>
+                ))}
+              </ol>
+              {missingUA && (
+                <Link
+                  href="/profile"
+                  className="mt-4 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+                >
+                  Complete your profile <ArrowRight className="h-3.5 w-3.5" />
+                </Link>
+              )}
+            </section>
+
+            <section className="rounded-xl border bg-card p-4">
+              <div className="flex items-center justify-between gap-2">
+                <h2 id="top-earners-title" className="text-sm font-semibold">
+                  Top earners
+                </h2>
+                <Link
+                  href="/leaderboard"
+                  className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-primary hover:underline"
+                >
+                  Leaderboard <ArrowUpRight className="h-3.5 w-3.5" />
+                </Link>
+              </div>
+              {leaderboard.length === 0 ? (
+                <p className="py-3 text-xs text-muted-foreground">
+                  Leaderboard data is not available right now.
+                </p>
+              ) : (
+                <>
+                  <div className="mb-1.5 mt-2 flex items-center justify-between">
+                    <p className="text-[10px] text-muted-foreground">
+                      Ranks {visibleTopEarnerIndex + 1}–
+                      {visibleTopEarnerIndex + topEarnerVisibleCount} of{" "}
+                      {leaderboard.length}
+                    </p>
+                    <div className="flex items-center">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7"
+                        aria-label="Show previous top earners"
+                        disabled={visibleTopEarnerIndex === 0}
+                        onClick={() =>
+                          setTopEarnerIndex(visibleTopEarnerIndex - 1)
+                        }
+                      >
+                        <ChevronUp className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7"
+                        aria-label="Show next top earners"
+                        disabled={visibleTopEarnerIndex === maxTopEarnerIndex}
+                        onClick={() =>
+                          setTopEarnerIndex(visibleTopEarnerIndex + 1)
+                        }
+                      >
+                        <ChevronDown className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                  <div
+                    role="region"
+                    aria-labelledby="top-earners-title"
+                    aria-roledescription="carousel"
+                    className="overflow-hidden"
+                    style={{
+                      height: `${topEarnerVisibleCount * TOP_EARNER_ROW_HEIGHT}px`,
+                    }}
+                  >
+                    <ol
+                      className="divide-y transition-transform duration-300 ease-out motion-reduce:transition-none"
+                      style={{
+                        transform: `translateY(-${visibleTopEarnerIndex * TOP_EARNER_ROW_HEIGHT}px)`,
+                      }}
+                    >
+                      {leaderboard.map((earner, index) => (
+                        <li
+                          key={earner.id}
+                          className="flex h-11 items-center gap-2.5"
+                        >
+                          <span className="w-4 shrink-0 text-xs tabular-nums text-muted-foreground">
+                            {index + 1}
+                          </span>
+                          <Avatar className="h-7 w-7 shrink-0">
+                            <AvatarImage
+                              src={earner.avatar ?? undefined}
+                              alt=""
+                            />
+                            <AvatarFallback className="text-[10px]">
+                              {earner.name.charAt(0).toUpperCase()}
+                            </AvatarFallback>
+                          </Avatar>
+                          <span className="min-w-0 flex-1 truncate text-xs font-medium">
+                            {earner.nickname || earner.name}
+                          </span>
+                          <span
+                            aria-label={
+                              earner.completed == null
+                                ? "Count unavailable"
+                                : `Count ${earner.completed.toLocaleString()}`
+                            }
+                            className="shrink-0 text-xs tabular-nums text-muted-foreground"
+                          >
+                            {earner.completed == null
+                              ? "—"
+                              : earner.completed.toLocaleString()}
+                          </span>
+                        </li>
+                      ))}
+                    </ol>
+                  </div>
+                </>
+              )}
+            </section>
+
+            <section className="rounded-xl border bg-card p-4">
+              <div className="mb-3 flex items-center justify-between">
+                <h2 className="text-sm font-semibold">Recently updated</h2>
+                <span className="text-xs text-muted-foreground">
+                  {recentBounties.length}
+                </span>
+              </div>
+              {recentBounties.length === 0 ? (
+                <p className="py-3 text-xs text-muted-foreground">
+                  New bounty activity will appear here.
+                </p>
+              ) : (
+                <ul className="space-y-3">
+                  {recentBounties.map((bounty) => (
+                    <li key={bounty.id} className="flex items-start gap-2.5">
+                      <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-muted">
+                        <Coins className="h-3.5 w-3.5 text-primary" />
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <button
+                          type="button"
+                          onClick={() => openBounty(bounty)}
+                          className="line-clamp-2 text-left text-xs font-medium hover:text-primary"
+                        >
+                          {bounty.title}
+                        </button>
+                        <p className="mt-1 text-[11px] text-muted-foreground">
+                          {formatDistanceToNow(
+                            new Date(bounty.updatedAt ?? bounty.dateCreated),
+                            { addSuffix: true },
+                          )}
+                        </p>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          </aside>
         </div>
       </div>
+
+      <footer className="mt-10 border-t bg-muted/20">
+        <div className="mx-auto grid w-full max-w-[1360px] gap-8 px-4 py-8 sm:grid-cols-2 sm:px-6 lg:grid-cols-[minmax(0,1fr)_repeat(3,140px)]">
+          <div>
+            <Link href="/home" className="text-lg font-bold tracking-tight">
+              <span className="text-primary">ZEC</span> Bounties
+            </Link>
+            <p className="mt-2 max-w-md text-sm text-muted-foreground">
+              Discover open-source work and community grants across the Zcash ecosystem. Contribute, collaborate, and earn ZEC.
+            </p>
+            <a
+              href="https://zechub.wiki"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline"
+            >
+              Explore ZecHub <ExternalLink className="h-3.5 w-3.5" />
+            </a>
+          </div>
+          <div>
+            <h2 className="text-xs font-semibold uppercase tracking-wide">Opportunities</h2>
+            <ul className="mt-3 space-y-2 text-sm text-muted-foreground">
+              <li><a href="#opportunities" className="hover:text-foreground">Bounties</a></li>
+              <li><Link href="/my-bounties" className="hover:text-foreground">My Bounties</Link></li>
+              <li><a href="#grants" className="hover:text-foreground">Grants</a></li>
+            </ul>
+          </div>
+          <div>
+            <h2 className="text-xs font-semibold uppercase tracking-wide">Explore</h2>
+            <ul className="mt-3 space-y-2 text-sm text-muted-foreground">
+              <li><Link href="/leaderboard" className="hover:text-foreground">Leaderboard</Link></li>
+              <li><Link href="/teams" className="hover:text-foreground">Teams</Link></li>
+              <li><Link href="/docs" className="hover:text-foreground">Documentation</Link></li>
+            </ul>
+          </div>
+          <div>
+            <h2 className="text-xs font-semibold uppercase tracking-wide">About</h2>
+            <ul className="mt-3 space-y-2 text-sm text-muted-foreground">
+              <li><Link href="/docs/faq" className="hover:text-foreground">FAQ</Link></li>
+              <li><Link href="/docs/privacy-payments" className="hover:text-foreground">Privacy &amp; payments</Link></li>
+              <li><Link href="/docs/contributors" className="hover:text-foreground">Contributors</Link></li>
+            </ul>
+          </div>
+        </div>
+        <div className="border-t">
+          <p className="mx-auto w-full max-w-[1360px] px-4 py-3 text-xs text-muted-foreground sm:px-6">
+            © {new Date().getFullYear()} ZEC Bounties. Built for the Zcash community.
+          </p>
+        </div>
+      </footer>
     </main>
   );
 }
 
 export default function HomePage() {
-  // useRoleGuard("CLIENT");
   return (
-    <ProtectedRoute blockAdmin blockTeam>
-      <MobileNavShell>
-        <HomeContent />
-      </MobileNavShell>
-    </ProtectedRoute>
+    <MobileNavShell>
+      <HomeContent />
+    </MobileNavShell>
   );
 }

@@ -185,7 +185,7 @@ export function Navbar({
   return (
     <>
       <nav className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-        <div className="flex h-14 items-center px-4 md:px-6">
+        <div className="mx-auto flex h-14 w-full max-w-[1360px] items-center px-3 sm:px-5">
           {/* Logo */}
           <div className="flex items-center gap-2 font-bold text-xl tracking-tight mr-4 md:mr-6">
             <Link
@@ -209,8 +209,26 @@ export function Navbar({
             </Link>
           </div>
 
-          {/* Docs — public */}
+          {/* Public navigation */}
           <div className="hidden xl:flex items-center space-x-5 text-sm font-medium mr-4">
+            <Link
+              href={currentUser ? "/home#opportunities" : "/#opportunities"}
+              className="transition-colors hover:text-primary"
+            >
+              Bounties
+            </Link>
+            <a
+              href={
+                currentUser
+                  ? "/home#grants"
+                  : "https://daodao.zone/dao/juno1nktrulhakwm0n3wlyajpwxyg54n39xx4y8hdaqlty7mymf85vweq7m6t0y/proposals"
+              }
+              target={currentUser ? undefined : "_blank"}
+              rel={currentUser ? undefined : "noopener noreferrer"}
+              className="transition-colors hover:text-primary"
+            >
+              Grants
+            </a>
             <Link
               href="/docs"
               className="flex items-center gap-1.5 transition-colors hover:text-primary"
@@ -287,10 +305,10 @@ export function Navbar({
               variant="ghost"
               size="icon"
               onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-              className="h-9 w-9"
+              className="relative h-9 w-9 flex-none"
             >
-              <Sun className="h-[1.2rem] w-[1.2rem] rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
-              <Moon className="absolute h-[1.2rem] w-[1.2rem] rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
+              <Sun className="absolute inset-0 m-auto h-[1.2rem] w-[1.2rem] rotate-0 scale-100 transition-transform duration-200 dark:-rotate-90 dark:scale-0" />
+              <Moon className="absolute inset-0 m-auto h-[1.2rem] w-[1.2rem] rotate-90 scale-0 transition-transform duration-200 dark:rotate-0 dark:scale-100" />
               <span className="sr-only">Toggle theme</span>
             </Button>
 
@@ -346,10 +364,10 @@ export function Navbar({
               variant="ghost"
               size="icon"
               onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-              className="h-9 w-9"
+              className="relative h-9 w-9 flex-none"
             >
-              <Sun className="h-[1.2rem] w-[1.2rem] rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
-              <Moon className="absolute h-[1.2rem] w-[1.2rem] rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
+              <Sun className="absolute inset-0 m-auto h-[1.2rem] w-[1.2rem] rotate-0 scale-100 transition-transform duration-200 dark:-rotate-90 dark:scale-0" />
+              <Moon className="absolute inset-0 m-auto h-[1.2rem] w-[1.2rem] rotate-90 scale-0 transition-transform duration-200 dark:rotate-0 dark:scale-100" />
               <span className="sr-only">Toggle theme</span>
             </Button>
 
@@ -386,6 +404,26 @@ export function Navbar({
                     <BookOpen className="h-4 w-4" />
                     Docs
                   </Link>
+                  <Link
+                    href={currentUser ? "/home#opportunities" : "/#opportunities"}
+                    className="px-3 py-2 text-sm font-medium rounded-md hover:bg-accent transition-colors"
+                    onClick={() => setMobileMenuOpen(false)}
+                  >
+                    Bounties
+                  </Link>
+                  <a
+                    href={
+                      currentUser
+                        ? "/home#grants"
+                        : "https://daodao.zone/dao/juno1nktrulhakwm0n3wlyajpwxyg54n39xx4y8hdaqlty7mymf85vweq7m6t0y/proposals"
+                    }
+                    target={currentUser ? undefined : "_blank"}
+                    rel={currentUser ? undefined : "noopener noreferrer"}
+                    className="px-3 py-2 text-sm font-medium rounded-md hover:bg-accent transition-colors"
+                    onClick={() => setMobileMenuOpen(false)}
+                  >
+                    Grants
+                  </a>
 
                   {!currentUser && (
                     <>

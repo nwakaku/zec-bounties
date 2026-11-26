@@ -139,6 +139,10 @@ export function BountyCard({
     dueDate && bounty.status !== "DONE" && bounty.status !== "CANCELLED"
       ? format(dueDate, "MMM d")
       : null;
+  const dueDateDetail =
+    dueDate && bounty.status !== "DONE" && bounty.status !== "CANCELLED"
+      ? `${isOverdue ? "Overdue" : "Due"} ${formatDistanceToNow(dueDate, { addSuffix: true })}`
+      : null;
 
   const dueDateColor = isOverdue
     ? "text-red-500 border-red-500/30 bg-red-500/10"
@@ -425,23 +429,29 @@ export function BountyCard({
               <Lock className="h-2.5 w-2.5" />
             </span>
           )}
-          <div className="flex items-center p-3 imd:p-4 gap-3 imd:gap-4">
-            {/* Avatar — always visible */}
-            <Avatar className="h-8 w-8 imd:h-10 imd:w-10 border shrink-0">
+          <div className="flex items-center gap-2.5 p-2.5 sm:gap-3 sm:p-3">
+            <Avatar className="h-10 w-10 shrink-0 rounded-xl border bg-muted">
               <AvatarImage
-                src={bountyCreatorAvatarSrc(bounty) || "/placeholder-user.jpg"}
+                src={
+                  bounty.team?.logo ||
+                  bountyCreatorAvatarSrc(bounty) ||
+                  undefined
+                }
+                alt=""
+                className="rounded-xl object-cover"
               />
-              <AvatarFallback>{bountyCreatorInitial(bounty)}</AvatarFallback>
+              <AvatarFallback className="rounded-xl bg-gradient-to-br from-primary/20 via-violet-500/10 to-sky-500/20 font-semibold text-primary">
+                {bountyCreatorInitial(bounty)}
+              </AvatarFallback>
             </Avatar>
 
-            {/* Name + title + description (description only on <imd) */}
-            <div className="flex-1 min-w-0">
-              <h3 className="font-semibold truncate group-hover:text-primary transition-colors text-sm imd:text-base flex items-center gap-1.5">
+            <div className="min-w-0 flex-1">
+              <h3 className="flex items-center gap-1.5 truncate text-sm font-semibold transition-colors group-hover:text-primary sm:text-base">
                 {bounty.title}
                 {isSuggestedTask && (
                   <Badge
                     variant="outline"
-                    className="hidden imd:inline-flex text-[9px] h-4 px-1 border-sky-500/40 text-sky-600 bg-sky-500/5 gap-0.5 shrink-0"
+                    className="hidden h-4 shrink-0 gap-0.5 border-sky-500/40 bg-sky-500/5 px-1 text-[9px] text-sky-600 sm:inline-flex"
                     title="Suggested by a hunter — no other applicants permitted"
                   >
                     <Lock className="h-2.5 w-2.5" /> Suggested
@@ -449,100 +459,42 @@ export function BountyCard({
                 )}
               </h3>
               <ProfileLink user={bounty.team ? null : bounty.createdByUser}>
-                <p className="text-xs text-muted-foreground truncate">
-                  {bountyCreatorName(bounty)}
+                <p className="truncate text-xs text-muted-foreground">
+                  {bounty.team?.name || bountyCreatorName(bounty)}
                 </p>
               </ProfileLink>
-              {/* Description shown only below imd */}
-              <p className="imd:hidden text-xs text-muted-foreground line-clamp-1 mt-0.5 opacity-80">
-                {bounty.description}
-              </p>
-            </div>
-
-            {/* Assignees — lg+ only, unchanged */}
-            {bounty.assignees && bounty.assignees.length > 0 ? (
-              <div className="hidden lg:flex flex-col gap-1 items-start px-4 border-l min-w-[140px]">
-                <span className="text-[10px] uppercase text-muted-foreground font-bold">
-                  Assignees
+              <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-muted-foreground sm:text-[11px]">
+                {bounty.categoryId && (
+                  <span className="inline-flex items-center gap-1">
+                    <ClipboardList className="h-3 w-3 shrink-0" />
+                    {bounty.categoryId}
+                  </span>
+                )}
+                <span className="inline-flex items-center gap-1">
+                  <Clock className="h-3 w-3 shrink-0" />
+                  {dueDateDetail ||
+                    `Posted ${formatDistanceToNow(new Date(bounty.dateCreated), { addSuffix: true })}`}
                 </span>
-                <div className="flex items-center gap-1">
-                  {bounty.assignees.slice(0, 3).map((a) => (
-                    <ProfileLink key={a.userId} user={a.user}>
-                      <Avatar
-                        className="h-5 w-5 border -ml-1 first:ml-0"
-                      >
-                        <AvatarImage
-                          src={a.user?.avatar || "/placeholder-user.jpg"}
-                        />
-                        <AvatarFallback className="text-[9px]">
-                          {a.user?.name?.[0]}
-                        </AvatarFallback>
-                      </Avatar>
-                    </ProfileLink>
-                  ))}
-                  {bounty.assignees.length > 3 && (
-                    <span className="text-[10px] text-muted-foreground ml-1">
-                      +{bounty.assignees.length - 3}
-                    </span>
-                  )}
-                </div>
-              </div>
-            ) : (
-              <div className="hidden lg:flex flex-col gap-1 items-start px-4 border-l min-w-[140px]">
-                <span className="text-[10px] uppercase text-muted-foreground font-bold">
-                  {isSuggestedTask ? "Invite Only" : "Available"}
-                </span>
-                <span className="text-[11px] text-muted-foreground">
-                  {isSuggestedTask
-                    ? "No other applicants"
-                    : "Open for applications"}
-                </span>
-              </div>
-            )}
-
-            {/* Category — imd+ only (was md:) */}
-            <div className="hidden imd:flex flex-col gap-1 items-center px-4 border-x">
-              <span className="text-[10px] uppercase text-muted-foreground font-bold">
-                Category
-              </span>
-              <Badge variant="secondary" className="text-[10px] h-5">
-                {bounty.categoryId}
-              </Badge>
-              <BountyRepoMark bounty={bounty} />
-            </div>
-
-            {/* Status — imd+ only (was sm:) */}
-            <div className="hidden imd:flex flex-col gap-1 items-center px-4">
-              <span className="text-[10px] uppercase text-muted-foreground font-bold">
-                Status
-              </span>
-              <Badge
-                variant="outline"
-                className={`${statusColors[bounty.status]} text-[10px] h-5`}
-              >
-                {formatStatus(bounty.status)}
-              </Badge>
-            </div>
-
-            {/* Due date — imd+ only (was sm:) */}
-            {dueDateLabel && (
-              <div className="hidden imd:flex flex-col gap-1 items-center px-4 border-l">
-                <span className="text-[10px] uppercase text-muted-foreground font-bold">
-                  Due
-                </span>
-                <span
-                  className={`text-[10px] px-2 py-0.5 rounded-full border font-medium whitespace-nowrap ${dueDateColor}`}
+                {bounty.applications && (
+                  <span className="inline-flex items-center gap-1">
+                    <Users className="h-3 w-3 shrink-0" />
+                    {bounty.applications.length} applicants
+                  </span>
+                )}
+                <Badge
+                  variant="outline"
+                  className={`${statusColors[bounty.status]} h-4 px-1.5 text-[9px]`}
                 >
-                  {isOverdue ? "⚠ " : ""}
-                  {dueDateLabel}
-                </span>
+                  {formatStatus(bounty.status)}
+                </Badge>
               </div>
-            )}
+            </div>
 
-            {/* Price — always visible */}
-            <div className="text-right pl-2 imd:pl-4 shrink-0">
-              <p className="font-bold text-sm">{bounty.bountyAmount} ZEC</p>
-              <p className="hidden imd:block text-[10px] text-muted-foreground">
+            <div className="shrink-0 text-right">
+              <p className="whitespace-nowrap text-sm font-bold">
+                {bounty.bountyAmount} ZEC
+              </p>
+              <p className="text-[10px] text-muted-foreground">
                 {bounty.difficulty}
               </p>
             </div>

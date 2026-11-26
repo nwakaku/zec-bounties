@@ -24,7 +24,6 @@ export function BottomTabBar({
   newBountyBlocked,
 }: BottomTabBarProps) {
   const pathname = usePathname();
-  const isHome = pathname === "/home";
   const isProfile = pathname === "/profile";
 
   return (
@@ -38,7 +37,10 @@ export function BottomTabBar({
     >
       <div className="grid grid-cols-5 items-center h-14">
         {SIDE_TABS.map((tab) => {
-          const active = pathname === tab.href;
+          const active =
+            tab.href === "/home"
+              ? pathname === "/home" || pathname === "/"
+              : pathname === tab.href;
           const Icon = tab.icon;
           return (
             <Link

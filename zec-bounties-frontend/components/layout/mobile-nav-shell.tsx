@@ -76,7 +76,7 @@ export function MobileNavShell({
               onSelectTeam={(id) => {
                 setActiveTeamId(id);
                 setIsTeamsSheetOpen(false);
-                if (pathname !== "/home") {
+                if (pathname !== "/home" && pathname !== "/") {
                   router.push("/home");
                 }
               }}

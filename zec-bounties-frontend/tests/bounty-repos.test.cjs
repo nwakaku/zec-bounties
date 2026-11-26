@@ -21,7 +21,11 @@ function loadTs(relative, requireFixture) {
 }
 
 const repos = loadTs("lib/repos.ts");
-const { filterAndSortBounties, DEFAULT_BOUNTY_BOARD_FILTERS } = loadTs(
+const {
+  filterAndSortBounties,
+  readBountyBoardFilters,
+  writeBountyBoardFilters,
+} = loadTs(
   "lib/bounty-filters.ts",
   (id) => {
     assert.equal(id, "@/lib/repos");
@@ -80,14 +84,43 @@ test("existing GitHub repository links keep their classifications", () => {
   ]) assert.equal(repos.bountyRepo({ description: `https://github.com/ZecHub/${name}` }), expected);
 });
 
-test("board filters put dashboard and wiki tasks in separate repositories", () => {
+test("board filters can combine repository and team selections", () => {
   const bounties = [
-    { id: "dashboard", description: "https://namada.zechub.wiki/" },
-    { id: "wiki", description: "https://zechub.wiki/" },
-    { id: "other", description: "No repository link" },
-  ].map((bounty) => ({ ...bounty, dateCreated: "2026-10-01", status: "TO_DO" }));
-  for (const [repo, expected] of [["namada", "dashboard"], ["zechub-wiki", "wiki"], ["untagged", "other"]]) {
-    const result = filterAndSortBounties(bounties, { ...DEFAULT_BOUNTY_BOARD_FILTERS, repo });
-    assert.deepEqual(Array.from(result, (bounty) => bounty.id), [expected]);
-  }
+    {
+      id: "dashboard",
+      description: "https://namada.zechub.wiki/",
+      teamId: "team-a",
+    },
+    {
+      id: "wiki",
+      description: "https://zechub.wiki/",
+      teamId: "team-a",
+    },
+    {
+      id: "other",
+      description: "No repository link",
+      teamId: "team-a",
+    },
+  ].map((bounty) => ({
+    ...bounty,
+    dateCreated: "2026-10-01",
+    status: "TO_DO",
+  }));
+  const params = new URLSearchParams("repo=namada&team=team-a");
+  const filters = readBountyBoardFilters(params);
+  const result = filterAndSortBounties(bounties, filters);
+  assert.deepEqual(Array.from(result, (bounty) => bounty.id), ["dashboard"]);
+
+  const untagged = filterAndSortBounties(bounties, {
+    ...filters,
+    repo: "untagged",
+  });
+  assert.deepEqual(Array.from(untagged, (bounty) => bounty.id), ["other"]);
+
+  const updatedParams = writeBountyBoardFilters(
+    new URLSearchParams(),
+    filters,
+  );
+  assert.equal(updatedParams.get("repo"), "namada");
+  assert.equal(updatedParams.get("team"), "team-a");
 });

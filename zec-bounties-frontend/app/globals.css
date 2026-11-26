@@ -191,6 +191,27 @@
   }
 }
 
+@keyframes top-earners-flow {
+  to {
+    transform: translateY(var(--top-earners-scroll-distance));
+  }
+}
+
+.top-earners-flow {
+  animation: top-earners-flow var(--top-earners-scroll-duration) linear infinite;
+}
+
+.top-earners-flow:hover,
+.top-earners-flow:focus-within {
+  animation-play-state: paused;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .top-earners-flow {
+    animation: none;
+  }
+}
+
 /* ── Ocean ─────────────────────────────────────────────────────────────── */
 [data-color-theme="ocean"] {
   --background: oklch(0.98 0.01 220);

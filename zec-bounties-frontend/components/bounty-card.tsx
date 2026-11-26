@@ -130,9 +130,9 @@ export function BountyCard({
   const isDueSoon =
     dueDate && !isOverdue
       ? isWithinInterval(new Date(), {
-          start: new Date(),
-          end: addDays(dueDate, 0),
-        }) && dueDate <= addDays(new Date(), 3)
+        start: new Date(),
+        end: addDays(dueDate, 0),
+      }) && dueDate <= addDays(new Date(), 3)
       : false;
 
   const dueDateLabel =
@@ -156,9 +156,9 @@ export function BountyCard({
         ? { label: "Cancelled", className: "text-muted-foreground border-border bg-muted/30" }
         : dueDateLabel
           ? {
-              label: `${isOverdue ? "⚠ " : ""}${dueDateLabel}`,
-              className: dueDateColor,
-            }
+            label: `${isOverdue ? "⚠ " : ""}${dueDateLabel}`,
+            className: dueDateColor,
+          }
           : null;
 
   const isNew = isNewBounty(bounty.dateCreated);
@@ -220,7 +220,7 @@ export function BountyCard({
     return (
       <>
         <Card
-          className="relative overflow-visible p-1 group transition-all hover:border-primary/50 hover:shadow-md bg-card/80 backdrop-blur-sm cursor-pointer"
+          className="relative overflow-visible p-0.5 group transition-all hover:border-primary/50 hover:shadow-md bg-card/80 backdrop-blur-sm cursor-pointer"
           onClick={handleCardClick}
         >
           {isNew && (
@@ -228,7 +228,7 @@ export function BountyCard({
               NEW
             </span>
           )}
-          <div className="p-3 space-y-2.5">
+          <div className="p-2 space-y-2">
             <h3 className="text-sm font-semibold leading-snug line-clamp-2 h-10 overflow-hidden group-hover:text-primary transition-colors">
               {bounty.title}
             </h3>
@@ -312,10 +312,10 @@ export function BountyCard({
                   <Button
                     size="icon"
                     className="h-6 w-6 bg-green-600 hover:bg-green-700 text-white rounded-full"
-                    // onClick={(e) => {
-                    //   e.stopPropagation();
-                    //   setIsSubmissionDialogOpen(true);
-                    // }}
+                  // onClick={(e) => {
+                  //   e.stopPropagation();
+                  //   setIsSubmissionDialogOpen(true);
+                  // }}
                   >
                     <Upload className="h-3 w-3" />
                   </Button>

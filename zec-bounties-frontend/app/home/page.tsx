@@ -1,6 +1,13 @@
 "use client";
 
-import { useState, useMemo, useRef, useEffect, useCallback } from "react";
+import {
+  useState,
+  useMemo,
+  useRef,
+  useEffect,
+  useCallback,
+  type CSSProperties,
+} from "react";
 import Link from "next/link";
 import { useSearchParams, usePathname, useRouter } from "next/navigation";
 import { Navbar } from "@/components/layout/navbar";
@@ -20,7 +27,6 @@ import {
   Ban,
   ArrowUpRight,
   ChevronDown,
-  ChevronUp,
   Coins,
   ExternalLink,
   Search,
@@ -32,7 +38,6 @@ import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { NewBountyModal } from "@/components/new-bounty-modal";
 import { BountyDetailModal } from "@/components/bounty-detail-modal";
-import { RepoFilter } from "@/components/repo-filter";
 import {
   FilterPanel,
   FilterSection,
@@ -40,8 +45,8 @@ import {
   FilterSelect,
   filterFieldClass,
 } from "@/components/filter-panel";
-import { bountyRepo } from "@/lib/repos";
-import { Bounty } from "@/lib/types";
+import { REPOS } from "@/lib/repos";
+import type { Bounty } from "@/lib/types";
 import { useBounty } from "@/lib/bounty-context";
 import type { BountyStatus } from "@/lib/types";
 import {
@@ -149,6 +154,11 @@ interface DaoProposalResponse {
   };
 }
 
+type TopEarnerTrackStyle = CSSProperties & {
+  "--top-earners-scroll-distance": string;
+  "--top-earners-scroll-duration": string;
+};
+
 function HomeContent() {
   const taskCreationBlocked = useTaskCreationBlocked();
   const { bountyQuota } = useBounty();
@@ -185,7 +195,6 @@ function HomeContent() {
   const [daoProposals, setDaoProposals] = useState<DaoProposal[]>([]);
   const [daoProposalsLoading, setDaoProposalsLoading] = useState(true);
   const [daoProposalsError, setDaoProposalsError] = useState(false);
-  const [topEarnerIndex, setTopEarnerIndex] = useState(0);
   const [viewMode, setViewMode] = useState<"grid" | "list" | "defrag">("list");
   const [isNewBountyModalOpen, setIsNewBountyModalOpen] = useState(false);
   const [selectedBounty, setSelectedBounty] = useState<Bounty | null>(null);
@@ -195,7 +204,6 @@ function HomeContent() {
 
   const {
     category: activeCategory,
-    repo: activeRepo,
     teamId: activeTeamId,
     query: searchQuery,
   } = filters;
@@ -265,22 +273,6 @@ function HomeContent() {
     });
   }, [sourceBounties, filters]);
 
-  const repoCounts = useMemo(() => {
-    const counts = {
-      namada: 0,
-      zechub: 0,
-      "zechub-wiki": 0,
-      "zec-bounties": 0,
-      untagged: 0,
-    };
-    for (const bounty of categoryFilteredBounties) {
-      const repo = bountyRepo(bounty);
-      if (repo) counts[repo] += 1;
-      else counts.untagged += 1;
-    }
-    return counts;
-  }, [categoryFilteredBounties]);
-
   const filteredBounties = useMemo(
     () => filterAndSortBounties(sourceBounties, filters),
     [sourceBounties, filters],
@@ -320,11 +312,16 @@ function HomeContent() {
     TOP_EARNERS_VISIBLE_COUNT,
     leaderboard.length,
   );
-  const maxTopEarnerIndex = Math.max(
-    0,
-    leaderboard.length - topEarnerVisibleCount,
-  );
-  const visibleTopEarnerIndex = Math.min(topEarnerIndex, maxTopEarnerIndex);
+  const topEarnerAutoScroll = leaderboard.length > topEarnerVisibleCount;
+  const topEarnerRows = topEarnerAutoScroll
+    ? [...leaderboard, ...leaderboard.slice(0, topEarnerVisibleCount)]
+    : leaderboard;
+  const topEarnerTrackStyle: TopEarnerTrackStyle = {
+    "--top-earners-scroll-distance": `-${
+      leaderboard.length * TOP_EARNER_ROW_HEIGHT
+    }px`,
+    "--top-earners-scroll-duration": `${leaderboard.length * 2.4}s`,
+  };
 
   useEffect(() => {
     if (leaderboardFetchStarted.current) return;
@@ -693,15 +690,46 @@ function HomeContent() {
                       </div>
                     </FilterSection>
 
-                    <FilterSection label="Repository">
-                      <RepoFilter
-                        value={activeRepo}
-                        onChange={(repo) => updateFilter("repo", repo)}
-                        counts={repoCounts}
-                      />
+                    <FilterSection label="Teams">
+                      <div className="flex flex-wrap gap-2">
+                        <FilterChip
+                          active={activeTeamId === ""}
+                          onClick={() => updateFilter("teamId", "")}
+                        >
+                          All teams
+                        </FilterChip>
+                        {filterTeams.map((team) => (
+                          <FilterChip
+                            key={team.id}
+                            active={activeTeamId === team.id}
+                            onClick={() => updateFilter("teamId", team.id)}
+                          >
+                            {team.name}
+                          </FilterChip>
+                        ))}
+                      </div>
                     </FilterSection>
 
                     <div className="grid grid-cols-1 gap-3 sam:grid-cols-2">
+                      <FilterSelect
+                        className="sam:col-span-2"
+                        label="Repository"
+                        value={filters.repo}
+                        options={[
+                          { value: "all", label: "All repositories" },
+                          ...REPOS.map((repo) => ({
+                            value: repo.id,
+                            label: repo.label,
+                          })),
+                          { value: "untagged", label: "Untagged" },
+                        ]}
+                        onChange={(value) =>
+                          updateFilter(
+                            "repo",
+                            value as BountyBoardFilters["repo"],
+                          )
+                        }
+                      />
                       <label className="flex min-w-0 flex-col gap-1.5 text-xs font-medium text-muted-foreground">
                         Min reward
                         <div className="relative">
@@ -837,19 +865,6 @@ function HomeContent() {
                         onChange={(v) =>
                           updateFilter("sort", v as BountyBoardFilters["sort"])
                         }
-                      />
-                      <FilterSelect
-                        className="sam:col-span-2"
-                        label="Team"
-                        value={filters.teamId}
-                        options={[
-                          { value: "", label: "All teams" },
-                          ...filterTeams.map((team) => ({
-                            value: team.id,
-                            label: team.name,
-                          })),
-                        ]}
-                        onChange={(v) => updateFilter("teamId", v)}
                       />
                     </div>
                   </FilterPanel>
@@ -1223,90 +1238,64 @@ function HomeContent() {
                 </p>
               ) : (
                 <>
-                  <div className="mb-1.5 mt-2 flex items-center justify-between">
-                    <p className="text-[10px] text-muted-foreground">
-                      Ranks {visibleTopEarnerIndex + 1}–
-                      {visibleTopEarnerIndex + topEarnerVisibleCount} of{" "}
-                      {leaderboard.length}
-                    </p>
-                    <div className="flex items-center">
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7"
-                        aria-label="Show previous top earners"
-                        disabled={visibleTopEarnerIndex === 0}
-                        onClick={() =>
-                          setTopEarnerIndex(visibleTopEarnerIndex - 1)
-                        }
-                      >
-                        <ChevronUp className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7"
-                        aria-label="Show next top earners"
-                        disabled={visibleTopEarnerIndex === maxTopEarnerIndex}
-                        onClick={() =>
-                          setTopEarnerIndex(visibleTopEarnerIndex + 1)
-                        }
-                      >
-                        <ChevronDown className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </div>
                   <div
                     role="region"
                     aria-labelledby="top-earners-title"
                     aria-roledescription="carousel"
-                    className="overflow-hidden"
+                    aria-label="Top earners scrolling vertically"
+                    className="mt-2 overflow-hidden"
                     style={{
                       height: `${topEarnerVisibleCount * TOP_EARNER_ROW_HEIGHT}px`,
                     }}
                   >
                     <ol
-                      className="divide-y transition-transform duration-300 ease-out motion-reduce:transition-none"
-                      style={{
-                        transform: `translateY(-${visibleTopEarnerIndex * TOP_EARNER_ROW_HEIGHT}px)`,
-                      }}
+                      className={`divide-y ${
+                        topEarnerAutoScroll ? "top-earners-flow" : ""
+                      }`}
+                      style={
+                        topEarnerAutoScroll ? topEarnerTrackStyle : undefined
+                      }
                     >
-                      {leaderboard.map((earner, index) => (
-                        <li
-                          key={earner.id}
-                          className="flex h-11 items-center gap-2.5"
-                        >
-                          <span className="w-4 shrink-0 text-xs tabular-nums text-muted-foreground">
-                            {index + 1}
-                          </span>
-                          <Avatar className="h-7 w-7 shrink-0">
-                            <AvatarImage
-                              src={earner.avatar ?? undefined}
-                              alt=""
-                            />
-                            <AvatarFallback className="text-[10px]">
-                              {earner.name.charAt(0).toUpperCase()}
-                            </AvatarFallback>
-                          </Avatar>
-                          <span className="min-w-0 flex-1 truncate text-xs font-medium">
-                            {earner.nickname || earner.name}
-                          </span>
-                          <span
-                            aria-label={
-                              earner.completed == null
-                                ? "Count unavailable"
-                                : `Count ${earner.completed.toLocaleString()}`
-                            }
-                            className="shrink-0 text-xs tabular-nums text-muted-foreground"
+                      {topEarnerRows.map((earner, index) => {
+                        const isClone = index >= leaderboard.length;
+                        return (
+                          <li
+                            key={`${earner.id}-${
+                              isClone ? "clone" : "original"
+                            }`}
+                            className="flex h-11 items-center gap-2.5"
+                            aria-hidden={isClone || undefined}
                           >
-                            {earner.completed == null
-                              ? "—"
-                              : earner.completed.toLocaleString()}
-                          </span>
-                        </li>
-                      ))}
+                            <span className="w-4 shrink-0 text-xs tabular-nums text-muted-foreground">
+                              {(index % leaderboard.length) + 1}
+                            </span>
+                            <Avatar className="h-7 w-7 shrink-0">
+                              <AvatarImage
+                                src={earner.avatar ?? undefined}
+                                alt=""
+                              />
+                              <AvatarFallback className="text-[10px]">
+                                {earner.name.charAt(0).toUpperCase()}
+                              </AvatarFallback>
+                            </Avatar>
+                            <span className="min-w-0 flex-1 truncate text-xs font-medium">
+                              {earner.nickname || earner.name}
+                            </span>
+                            <span
+                              aria-label={
+                                earner.completed == null
+                                  ? "Count unavailable"
+                                  : `Count ${earner.completed.toLocaleString()}`
+                              }
+                              className="shrink-0 text-xs tabular-nums text-muted-foreground"
+                            >
+                              {earner.completed == null
+                                ? "—"
+                                : earner.completed.toLocaleString()}
+                            </span>
+                          </li>
+                        );
+                      })}
                     </ol>
                   </div>
                 </>

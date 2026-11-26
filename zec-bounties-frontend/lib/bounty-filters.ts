@@ -1,4 +1,8 @@
-import { bountyRepo, isRepoId, REPOS, type RepoId } from "@/lib/repos";
+import {
+  bountyRepo,
+  isRepoId,
+  type RepoId,
+} from "@/lib/repos";
 import type { Bounty } from "@/lib/types";
 
 export type BountyBoardStatus = "" | "open" | "assigned" | "in_review";
@@ -93,10 +97,7 @@ export function writeBountyBoardFilters(
   const values: Record<string, string> = {
     q: filters.query.trim(),
     category: filters.category === "All" ? "" : filters.category,
-    repo:
-      filters.repo === "all"
-        ? ""
-        : filters.repo,
+    repo: filters.repo === "all" ? "" : filters.repo,
     team: filters.teamId,
     min: filters.minReward == null ? "" : String(filters.minReward),
     max: filters.maxReward == null ? "" : String(filters.maxReward),

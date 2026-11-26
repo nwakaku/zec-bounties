@@ -1,6 +1,7 @@
 "use client";
 
 import { subscribeToPush } from "@/lib/pushNotifications";
+import { backendUrl } from "@/lib/configENV";
 
 export default function PushTest() {
   const handleEnable = async () => {
@@ -10,7 +11,7 @@ export default function PushTest() {
       const token = localStorage.getItem("authToken");
 
       const response = await fetch(
-        `${process.env.NEXT_PUBLIC_BACKEND_URL}/notifications/push/subscribe`,
+        `${backendUrl}/api/notifications/push/subscribe`,
         {
           method: "POST",
           headers: {

@@ -1,5 +1,19 @@
 /** @type {import('next').NextConfig} */
+const backendOrigin =
+  process.env.NEXT_PUBLIC_BACKEND_URL?.replace(/\/+$/, "") ||
+  (process.env.NODE_ENV === "production"
+    ? "https://zechub.zone"
+    : "http://localhost:9000");
+
 const nextConfig = {
+  async rewrites() {
+    return [
+      {
+        source: "/_backend/:path*",
+        destination: `${backendOrigin}/:path*`,
+      },
+    ];
+  },
   typescript: {
     ignoreBuildErrors: true,
   },
